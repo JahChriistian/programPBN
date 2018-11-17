@@ -1,0 +1,1157 @@
+
+# include <stdlib.h>
+# include <stdio.h>
+# include <time.h>
+# include "states.h"
+# include "input.h"
+# include "graph.h"
+# include <math.h>
+# define MAX 100
+
+int randomInteger (int low, int high){
+  return low + rand() / (RAND_MAX / (high - low + 1) + 1);
+}
+
+void copyRow(int ** R,int ** M,int r,int ngenes){
+  int k;
+  for(k=0; k < ngenes; k++)
+    R[r][k] = M[r][k];
+}
+
+
+void insertionSort_attractors(struct list_states * V, const int n) {
+  int i, j;
+  struct states key;
+  for (i = 1; i < n; i++) {
+    key = V->list[i];
+    j = i-1;
+ 
+    /* Move elements of arr[0..i-1], that are */
+    /* greater than key, to one position ahead */
+    /* of their current position  */
+
+    while (j >= 0 && V->list[j].nro_atractors > key.nro_atractors) {
+      V->list[j+1] = V->list[j];
+      j = j-1;
+    }
+    V->list[j+1] = key;
+  }
+}
+
+void insertionSort_deviation(struct list_states * V, const int n) {
+  int i, j;
+  struct states key;
+  for (i = 1; i < n; i++) {
+    key = V->list[i];
+    j = i-1;
+ 
+    /* Move elements of arr[0..i-1], that are */
+    /* greater than key, to one position ahead */
+    /* of their current position  */
+
+    while (j >= 0 && V->list[j].deviation > key.deviation) {
+      V->list[j+1] = V->list[j];
+      j = j-1;
+    }
+    V->list[j+1] = key;
+  }
+}
+
+void sort(struct list_states * V, const int n){
+  insertionSort_deviation(V,n);
+  insertionSort_attractors(V,n);
+}
+
+double searchFrecuency(long attractor, INPUT * input){
+  int i;
+  for(i=0; i < input -> atractores; i++)
+    if(input -> state[i] == attractor) 
+      return input -> fr[i];
+  return 0.0;
+}
+
+void calculateDeviation(struct states * st,struct input * in){
+  double sum,aux;
+  int i;
+  sum = 0.0;
+  for(i=0; i < st -> nro_atractors; i++){
+    aux = searchFrecuency(st -> atractors[i],in);
+    if(aux != 0)
+      sum += sqrt(pow(st -> frecuency[i] - aux , 2 ));
+  }
+  st -> deviation = sum/in -> atractores;
+}
+
+
+int evaluation(struct graph * graph,int ** M,int ngenes){
+  int i,j;
+  for(i = 0; i < ngenes; i++)
+    for (j = 0; j < ngenes; j++)
+      if(M[i][j] != 0)
+	addEdge(graph,j,i);
+  if(isConnected(graph) == 1 && number(graph) < ngenes * ngenes * 0.40)
+    return 1;
+  else
+    return 0;
+}
+
+void printt(int ** M,int ngenes){
+  int i,j;
+  for(i = 0; i < ngenes; i++){
+    for (j = 0; j < ngenes; j++)
+      printf("%3d",M[i][j]);
+    printf("\n");
+  }
+}
+
+void printDouble(double ** M,int r,int c){
+  int i,j;
+  
+  for(i = 0; i < r; i++){
+    for (j = 0; j < c; j++){
+      printf("%f ",M[i][j]);
+    }printf("\n");
+  }
+ 
+}
+
+void generatedPopulation(struct list_states * list_state,struct inference * inf,struct input * aux,int I,int S){
+  int m=I;
+  while(m < S){
+    int ** ptr = generatedM(aux,inf);
+    GRAPH * graph = createGraph(aux -> ngenes);
+    
+    if(evaluation(graph,ptr,aux -> ngenes) == 1){
+      
+      struct states * state = malloc(sizeof(struct states));
+      
+      generateBasin(ptr,aux -> ngenes,state);
+      calculateDeviation(state,aux);
+      
+      list_state -> list[m] = *state;
+      m++;
+    }
+    destroyM(ptr,aux -> ngenes);
+    destroy_graph(graph);
+  }
+}
+
+void crossoverSP(struct list_states * L,int ** C1,int** C2,int I,int S,int ngenes)
+{
+  int m1,m2,i,r;
+  m1 = randomInteger(I,S);
+  m2 = randomInteger(I,S);
+
+  r = randomInteger(1,ngenes-2);
+  for(i = 0; i < ngenes; i++) {
+    if(i < r){
+      copyRow(C1,L->list[m1].M,i,ngenes);
+      copyRow(C2,L->list[m2].M,i,ngenes);
+    }
+    else{
+      copyRow(C1,L->list[m2].M,i,ngenes);
+      copyRow(C2,L->list[m1].M,i,ngenes);
+    }
+  }
+}
+
+void crossoverTP(struct list_states * L,int ** C1,int** C2,int I,int S,int ngenes)
+{
+  int m1,m2,i,p1=1,p2=0;
+  m1 = randomInteger(I,S);
+  m2 = randomInteger(I,S);
+
+  while(p1 > p2){
+    p1 = randomInteger(1,ngenes-2);
+    p2 = randomInteger(1,ngenes-2);
+  }
+  for(i = 0; i < ngenes; i++) {
+    if(i < p1){
+      copyRow(C1,L->list[m1].M,i,ngenes);
+      copyRow(C2,L->list[m2].M,i,ngenes);
+    }
+    if(i >= p1 && i < p2){
+      copyRow(C1,L->list[m2].M,i,ngenes);
+      copyRow(C2,L->list[m1].M,i,ngenes);
+    }
+    if(i >= p2){
+      copyRow(C1,L->list[m1].M,i,ngenes);
+      copyRow(C2,L->list[m2].M,i,ngenes);
+    }
+  }
+}
+
+void mutation(struct list_states * L,struct inference * inf,int ** C,int I,int S,int ngenes){
+  int i,j,z,r,t;
+  
+  r = randomInteger (I,S);
+
+  for(i = 0; i < ngenes ;i++){
+    copyRow(C,L -> list[r].M,i,ngenes);
+  }
+
+  i = randomInteger (0,ngenes - 1);
+  j = randomInteger (0,inf -> size[i] - 1);
+
+  for (z = 0;z < ngenes; z++){
+    C[i][z] = inf -> rows[i][j][z];
+  }
+}
+
+int ** createPtr(int n){
+  int i;
+  int ** M = (int **) malloc (n * sizeof(int *));
+  for (i = 0; i < n; i++)
+    M[i] = (int *) malloc (n * sizeof(int));
+  return M;
+}
+
+void destroyPtr(int ** M,int n){
+  int i;
+  for (i = 0; i < n; i++)
+    free(M[i]);
+  free(M);
+  M = NULL;
+}
+
+double * createPtrLo(int n){
+  int i;
+  double * M = (double *) malloc (n * sizeof(double));
+  for (i = 0; i < n; i++)
+    M[i] = 0.0;
+  return M;
+}
+
+double ** createPtrL(int r,int c){
+  int i,j;
+  double ** M = (double **) malloc (r * sizeof(double *));
+  for (i = 0; i < r; i++)
+    M[i] = (double *) malloc (c * sizeof(double));
+
+  for (i = 0; i < r; i++)
+    for (j = 0; j < c; j++)
+      M[i][j] = 0.0;
+  return M;
+}
+
+void destroyPtrL(double ** M,int n){
+  int i;
+  for (i = 0; i < n; i++)
+    free(M[i]);
+  free(M);
+  M = NULL;
+}
+
+void Zeros(double ** M,int r,int c){
+  int i,j;
+  for (i = 0; i < r; i++)
+    for (j = 0; j < c; j++)
+      M[i][j] = 0.0;
+} 
+
+void printPROCEDURE(struct list_states * L){
+  int i;
+  for(i = 0; i < L -> popSize; i++)
+    printf("Cromossome %03d: Attractors %03lu deviation: %f\n",i+1,L->list[i].nro_atractors,L->list[i].deviation);
+  printf("\n");
+}
+void procedure(struct list_states * L,struct inference * inf,INPUT * in,int ngenes){
+  int i=0,j,k,r0,r1,r2,s,**ptr1,**ptr2,**ptr,loop=50;
+
+  r0 = L -> popSize * 0.3;
+  s = (L -> popSize - r0) / 3 ;
+  r1 = r0 + s;
+  r2 = r0 + 2 * s;
+  
+  while(i < loop){
+    for(j = r0; j < r1 ; j++){
+      ptr1 = createPtr(ngenes); ptr2 = createPtr(ngenes);
+
+      crossoverTP(L,ptr1,ptr2,0,r0,ngenes);
+      struct states * s1 = malloc(sizeof(struct states));
+      struct states * s2 = malloc(sizeof(struct states));
+      
+      generateBasin(ptr1,ngenes,s1);
+      calculateDeviation(s1,in);
+      
+      L -> list[j] = *s1; j++;
+      
+      if (j < r1){
+	generateBasin(ptr2,ngenes,s2);
+	calculateDeviation(s2,in);
+	L -> list[j] = *s2;
+      }  
+      destroyPtr(ptr1,ngenes); destroyPtr(ptr2,ngenes);
+    }
+    
+    for(j = r1; j < r2 ; j++){
+      ptr = createPtr(ngenes);
+      mutation(L,inf,ptr,0,r0,ngenes);
+      
+      struct states * s = malloc(sizeof(struct states)); 
+      generateBasin(ptr,ngenes,s);
+      calculateDeviation(s,in);
+      L -> list[j] = *s;
+
+      destroyPtr(ptr,ngenes);
+    }
+    
+    generatedPopulation(L,inf,in,r2,L -> popSize);
+    sort(L,L -> popSize);
+    
+    if(0 && i == loop - 1) printPROCEDURE(L);
+
+    i++;
+  }
+}
+
+/******************************************************/
+void generatePopulationPBTN(struct listPBTN * lPBTN,struct listNETWORK * L,INPUT * entrada,int I,int S){
+  int i,j,k;
+  for(i = I; i < S; i++)
+    for(j = 0; j < L -> nlist; j++)
+      lPBTN -> list[i].indice[j] = randomInteger(0,L -> listNet[0].nNetwork -1);
+}
+
+void copyArray(int * A,int * B, int n){
+  int i;
+  for(i = 0; i < n; i++ )
+    A[i] = B[i];
+}
+
+void mutationPBTN(struct listPBTN * L,struct listNETWORK * lnet,int * A1,int I,int S){
+  int i,j,z,r,t;
+  
+  r = randomInteger (I,S);
+
+  for(i = 0; i < lnet -> nlist; i++) {
+    A1[i] = L -> list[r].indice[i];
+  }
+  
+  i = randomInteger (0,lnet -> nlist - 1);
+  j = randomInteger (0,L -> popsize - 1);
+    
+  A1[i] = L -> list[j].indice[i];
+}
+
+void crossoverSPPBTN(struct listPBTN * L,struct listNETWORK * lnet,int * A1,int *A2,int I,int S)
+{
+  int m1,m2,i,r;
+  m1 = randomInteger(I,S);
+  m2 = randomInteger(I,S);
+
+  r = randomInteger(1,lnet -> nlist - 2);
+  for(i = 0; i < lnet -> nlist; i++) {
+    if(i < r){
+      A1[i] = L -> list[m1].indice[i];
+      A2[i] = L -> list[m2].indice[i];
+    }
+    else{
+      A1[i] = L -> list[m2].indice[i];
+      A2[i] = L -> list[m1].indice[i];
+    }
+  }
+}
+
+
+void insertionSort_MSE(struct PBTN * V, const int n) {
+  int i,j;
+  struct PBTN key;
+  for (i = 1; i < n; i++) {
+    key = V[i];
+    j = i-1;
+ 
+    /* Move elements of arr[0..i-1], that are */
+    /* greater than key, to one position ahead */
+    /* of their current position  */
+
+    while (j >= 0 && V[j].MSE > key.MSE) {
+      V[j+1] = V[j];
+      j = j-1;
+    }
+    V[j+1] = key;
+  }
+}
+
+double findFrecuency(long attractor, struct states st){
+  int i;
+  for(i=0; i < st.nro_atractors; i++)
+    if(st.atractors[i] == attractor) 
+      return st.frecuency[i];
+  return 0.0;
+}
+
+void calculateMSE(struct listPBTN * lPBTN,struct listNETWORK * L,INPUT * entrada){
+  int i,j,k;
+  for(k = 0; k < lPBTN -> popsize; k++){
+    double Erro = 0.0;
+    for(i = 0; i < entrada -> atractores; i++){
+      double sum = 0.0;
+      for(j = 0; j < L -> nlist; j++){
+	/* (B - m)/m + (f_i - pi(A_i)) */
+	int index = lPBTN -> list[k].indice[j];
+	/* calculate p(BN) of set of BN's */
+	double pro = lPBTN -> list[k].prob_selection[j];
+	if(pro == -1 ) {lPBTN -> list[k].prob_selection[j] = 0; pro = 0;}
+	/**/
+	double f = findFrecuency(entrada -> state[i],L -> listNet[j].list[index]);
+	sum += f * pro;
+      }
+      sum = sum / L -> nlist;
+      Erro += sqrt(pow(entrada -> fr[i] - sum , 2 ));
+    }
+    lPBTN -> list[k].MSE = Erro / entrada -> atractores;
+  }
+}
+
+void printLISTPBTN(struct listPBTN * lPBTN,int nlist){
+  int i,j;
+  for(i = 0; i < lPBTN -> popsize; i++){
+    printf("Cromossome %03d: [ ",i);
+    for(j = 0; j < nlist; j++)
+      printf("%02d ",lPBTN -> list[i].indice[j]);
+    printf("] M.S.E: %3lf \n",lPBTN -> list[i].MSE);
+  }
+  printf("\n");
+}
+
+int _index(int state, int * listStates, int length){
+  int i,j;
+  for(i=0; i<length; i++)if(listStates[i]==state)j=i;
+  return j;
+}
+
+void _count(int * freq, INPUT * aux, INPUT * IN){
+  int i;
+  for(i=0; i < aux -> atractores; i++)
+    freq[_index(aux->state[i],IN->state,IN->atractores)]++;
+  }
+
+
+void verifySets(int * freq, INPUT * aux, INPUT * IN){
+  int i,j=0,k;
+  double sum=0.0;
+
+  for(i=0; i < IN -> atractores; i++){
+    if(freq[i]==0 || freq[i]==1){
+      aux -> state[j] = IN -> state[i];
+      for(k=0; k < IN -> ngenes; k++) aux -> Matriz[j][k] = IN -> Matriz[i][k];
+      aux -> fr[j] = IN -> fr[i];
+      j++;
+    }
+  }
+  
+  for(i=0; i < aux -> atractores; i++)
+    aux -> fr[i] = IN -> fr[_index(aux->state[i],IN->state,IN->atractores)];
+
+  
+  for(i = 0; i < aux->atractores; i++) sum += aux->fr[i];
+  for(i = 0; i < aux->atractores; i++) aux->fr[i] = aux->fr[i]/sum;
+  
+}
+
+void generateNETWORK(INPUT * entrada,struct listNETWORK * listNetwork){
+  
+  int y=0,j,k,l=0,i,m=0,popSize=27,
+    nlist=10, /* número de subconjuntos de atratores */
+    nNetwork=25; /* número de redes para cada subconjunto */
+  int imp=1,count=0;
+   
+  int * freq = (int *) malloc (sizeof(int) * entrada -> atractores);
+  for(k=0; k<entrada->atractores; k++) freq[k]=0; 
+  listNetwork -> nlist = nlist;
+  listNetwork -> listNet = (struct NETWORK *) malloc (sizeof(struct NETWORK) * nlist);
+
+  while(y < nlist){
+    INPUT * aux = malloc(sizeof(INPUT));
+    
+    if(imp) printf ("Attractor Set ID: %2d\n", y+1);
+  volta: generateINPUT(entrada,aux);
+    if(imp) printINPUT(aux);
+    
+    if (y >= nlist - 2) verifySets(freq,aux,entrada);
+    else _count(freq,aux,entrada);
+
+    struct inference * inf = malloc(sizeof(struct inference));
+    inference(aux,inf);
+    if (0 && imp) printINFERENCE(aux, inf);
+
+    listNetwork -> listNet[y].nNetwork = nNetwork;
+    listNetwork -> listNet[y].subAtractors = malloc(sizeof(INPUT));
+    listNetwork -> listNet[y].list = (struct states *) malloc (sizeof(struct states) * nNetwork);
+    listNetwork -> listNet[y].subAtractors = aux;
+    
+    j=0,count=0;
+    while(j < nNetwork){
+      
+      struct list_states * list_state = malloc (sizeof(struct list_states));
+      list_state -> popSize = popSize;
+      list_state -> list = (struct states *) malloc (sizeof(struct states) * popSize); 
+      
+      generatedPopulation(list_state,inf,aux,0,popSize);
+      sort(list_state,popSize);
+      if(0 && imp)printLIST_STATES(list_state, aux->ngenes);
+ 
+      procedure(list_state,inf,aux,aux -> ngenes);
+      if(list_state -> list[0].nro_atractors == aux -> atractores ){
+      listNetwork -> listNet[y].list[j] = list_state -> list[0];
+
+      if (imp) printf("Solution %2d for Attractors Set %2d: Attractors %03lu deviation: %f\n",j,y,list_state -> list[0].nro_atractors,list_state -> list[0].deviation);
+      count = 0;
+      j++;
+      }
+      destroyLIST_STATES(list_state, aux -> ngenes);
+      count++;
+      if (count == 50) {
+        /* sair do while e gerar um novo subconjunto de atratores */
+        printf ("gerando um novo subconjunto ...\n");
+        goto volta;
+      }
+      
+    }
+    destroyINFERENCE(inf,aux -> ngenes);
+    y++;
+  }
+  // if(imp) printLISTNET(listNetwork);
+  free(freq);
+}
+
+double * probabilitiesPBN (struct listPBTN * lPBTN,struct listNETWORK * L,INPUT * entrada){
+  int i,j,k,nstates;
+  double s1,s2;
+  double Erro = 0.0;
+  nstates = 1 << entrada -> ngenes;
+
+  double * p = createPtrLo(nstates);
+      
+  for(i = 0; i < entrada -> atractores; i++)
+    printf ("%4d, ", entrada -> state[i]);
+  
+  printf ("\n");
+  for(i = 0; i < entrada -> atractores; i++){
+    printf ("%f, ", entrada -> fr[i]);s1 += entrada -> fr[i];
+  }
+  printf ("\n");
+  for(i = 0; i < entrada -> atractores; i++){
+    double sum = 0.0;
+    for(j = 0; j < L -> nlist; j++){
+      int index = lPBTN -> list[0].indice[j];
+      double f = findFrecuency(entrada -> state[i],L -> listNet[j].list[index]);
+      sum += f;
+    }
+    sum = sum / L -> nlist;
+    p[entrada -> state[i]] = sum;
+    Erro += sqrt(pow(entrada -> fr[i] - sum , 2 ));
+    printf ("%f, ", sum);
+    
+  }
+  printf ("\n");
+  printf ("MSE: %f \n", Erro / entrada -> atractores);
+  return p;
+}
+
+double * probabilitiesData (struct listPBTN * lPBTN,struct listNETWORK * L,INPUT * entrada){
+  int i,j,k,nstates;
+  nstates = 1 << entrada -> ngenes;
+  double * p = createPtrLo(nstates);
+      
+  for(i = 0; i < entrada -> atractores; i++)
+    p[entrada -> state[i]] = entrada -> fr[i];
+    
+  return p;
+}
+
+/* ************************************ */
+double * productMatrixVector(double ** A,double * B, int nrows, int ncols){
+  int x,y,z;
+  /* A is a matrix with nrows x ncols */
+  /* B is a vector with ncols x 1 */
+  double * C;
+  C = createPtrLo(nrows);
+  
+  for (x = 0; x < nrows; x++)
+    for (z = 0; z < ncols; z++)
+	C[x] += A[x][z] * B[z];
+  return C;
+}
+
+void productMatrixVector1(double * C,double ** A,double * B,int m){
+  int x,y,z;
+  for (x = 0; x < m; x++)
+    for (z = 0; z < m; z++)
+	C[x] += A[x][z] * B[z];
+}
+
+double * productML(double ** A,double * B,int m){
+  int x,y,z;
+  
+  double * C;
+  C = createPtrLo(m);
+  
+  for (x = 0; x < m; x++)
+    for (z = 0; z < m; z++)
+	C[x] += A[x][z] * B[z];
+  return C;
+}
+
+double ** productMATRIX(double ** A,double ** B,int m,int n,int p){
+  int x,y,z;
+  
+  double ** C;
+  C = createPtrL(m,p);
+  
+  for (x = 0; x < m; x++)
+    for (y = 0; y < p; y++)
+      for (z = 0; z < n; z++)
+	C[x][y] += A[x][z] * B[z][y];
+  return C;
+}
+
+double ddot(double *x, double *y, int n)
+{
+    int i;
+    double final_sum = 0;
+
+    for (i = 0; i < n; ++i)
+        final_sum += x[i] * y[i];
+
+    return final_sum;
+}
+
+double ** tranposeMATRIX(double ** M, int r,int c){
+  int x,y;
+  double ** T;
+  T = createPtrL(c,r);
+    
+  for(x = 0; x < r; x++)
+    for(y = 0; y < c; y++)
+      T[y][x] = M[x][y];
+  return T;
+}
+
+double productVECTOR (int n, double v1[], double v2[]){
+  int i;
+  double value;
+  
+  value = 0.0;
+  for (i = 0; i < n; i++)
+    value = value + v1[i] * v2[i];
+    
+  return value;
+
+}
+
+void copyMatrix(double ** A,double ** B,int r,int c, int w){
+  int i,j;
+  for (i = 0; i < r + 1; i++)
+    for (j = 0; j < c; j++)
+      if(i == r)
+	B[i][j] = w;
+      else
+	B[i][j] = A[i][j];
+}
+
+double * dif(double * A,double * B,int n){
+  int i;
+  double * C;
+  C = createPtrLo(n);
+  for (i = 0; i < n; i++)
+    C[i] = A[i] - B[i];
+  return C;
+}
+
+void Dif(double *C,double * A,double * B,int n){
+  int i;
+  
+  for (i = 0; i < n; i++)
+    C[i] = A[i] - B[i];
+}
+
+void Adi(double *C,double * A,double * B,int n){
+  int i;
+  
+  for (i = 0; i < n; i++)
+    C[i] = A[i] + B[i];
+}
+
+double * adi(double * A,double * B,int n){
+  int i;
+  double * C;
+  C = createPtrLo(n);
+  for (i = 0; i < n; i++)
+    C[i] = A[i] + B[i];
+  return C;
+}
+
+void escalar(double * A,int n,double x){
+  int i;
+  for (i = 0; i < n; i++)
+    A[i] = x * A[i]; 
+}
+
+void copyList(double * A,double * B,int n,int w){
+  int i;
+  for (i = 0; i < n + 1; i++)
+    if(i == n)
+      B[i] = w;
+    else
+      B[i] = A[i];
+}
+
+void copyL(double * A,double * B,int n){
+  int i;
+  for (i = 0; i < n; i++)
+    B[i] = A[i];
+}
+
+void printList(double * A,int n){
+  int i;
+  
+  double j=0.0;
+  for(i=0;i<n;i++){
+    printf("[%f] ",A[i]); j+=A[i];
+  }
+  
+  printf(" sum = %f\n",j);
+}
+
+void initialize(double * A,int n){
+  int i;
+  for(i=0;i<n;i++)
+    printf("%f \n",A[i]);
+}
+
+double norma(double * A,int n){
+  int i;
+  double s=0.0;
+  for(i=0; i<n; i++)
+    s+= pow(A[i],2);
+  return sqrt(s);
+    
+}
+
+double mulVectorTranspose(double * A, double * B,int n){
+  double i = 0.0;
+  int j;
+  for(j=0;j < n ; j++)
+    i += A[j] * B[j];
+  return i;
+}
+
+void initialY0(double * A,int n){
+  int j;
+  for(j=0; j < n ; j++)
+    A[j] = 1.0/n;
+    
+}
+
+void ProcedureConjugateGradient(struct listNETWORK * lN,struct listPBTN * lPBTN,int ngenes,double * p){
+  int i,j,k,l,x,y,n,z,h,imp = 1;
+  double * pA;
+  long number_of_states = 1 << ngenes;
+  n = lN -> nlist;
+  /* ****** */
+  int w = 1000;
+  double den,num,alpha1,numerator,denominator,beta2,alpha2,auxDenominator;
+    
+  pA = createPtrLo(number_of_states + 1);
+  copyList(p,pA,number_of_states,w);
+  unsigned long * graph;
+  graph = (unsigned long *) malloc (sizeof (unsigned long) * number_of_states);
+  double * yk,* y2,* r0,* r1,* r2,*p2,*z2;
+  double *y0,*p1,*aux2,*aux3,*rk,*auxp,*auxz,*auxy2,*auxr2;
+  //double *mul,*aux0,*aux1,*auxd;
+  yk = createPtrLo(n);y2 = createPtrLo(n);r0 = createPtrLo(n);r1 = createPtrLo(n);r2 = createPtrLo(n);p2 = createPtrLo(n);z2 = createPtrLo(n);
+
+  y0 = createPtrLo(n);p1 = createPtrLo(n);aux2 = createPtrLo(n);aux3 = createPtrLo(n);rk = createPtrLo(n);auxp = createPtrLo(n);auxz = createPtrLo(n);
+
+  auxy2 = createPtrLo(n);auxr2 = createPtrLo(n);
+  //aux1 = createPtrLo(n);auxd = createPtrLo(n);
+  //mul = createPtrLo(n);aux0 = createPtrLo(n);
+  for(h = 0; h < lPBTN -> popsize; h++){
+    
+    double ** aux,** V, ** VA, ** H, **HH;
+    
+    
+    V = createPtrL(number_of_states,n);
+    VA = createPtrL(number_of_states + 1,n);
+    
+    for(i = 0; i < n; i++){
+      
+      aux = createPtrL(number_of_states,number_of_states);
+      
+      y = lPBTN -> list[h].indice[i];
+      lPBTN -> list[h].prob_selection[i] = 0.0;
+      generatedDiagram (lN->listNet[i].list[y].M, ngenes, graph);
+      
+      // for(x = 0; x < number_of_states; x++)
+      //	for(z = 0; z < number_of_states; z++)
+      //  if(x == graph[z])
+      //    aux[x][z] = 1.0;
+
+      for(z = 0; z < number_of_states; z++)
+        aux[graph[z]][z] = 1.0;
+      
+      double * mul = productML(aux,p,number_of_states);
+      //productMatrixVector1(mul,aux,p,number_of_states);
+      for(x = 0; x < number_of_states; x++)
+	V[x][i] = mul[x];
+      destroyPtrL(aux,number_of_states);
+      
+      free(mul);     
+    }
+    
+    copyMatrix(V,VA,number_of_states,n,w);
+    
+    
+    double ** VT = tranposeMATRIX(VA,number_of_states + 1,n);
+    
+    H = productMATRIX(VT,VA,n,number_of_states + 1,n);
+    
+    k = 1;
+    
+     
+    double * b = productMatrixVector(VT,pA, n, number_of_states + 1);//printList(b,n);
+    initialY0(y0,n);
+    double * aux0 = productML(H,y0,n);
+    //productMatrixVector1(aux0,H,y0,n);
+    Dif(r0,b,aux0,n);
+    copyL(r0,p1,n);//printList(p1,n);
+      
+    num = mulVectorTranspose(r0,r0,n);
+    double * aux1 = productML(H,p1,n);
+    //productMatrixVector1(aux1,H,p1,n);
+    den = mulVectorTranspose(p1,aux1,n);
+    alpha1 = num/den;
+    
+    copyL(p1,aux2,n);
+    escalar(aux2,n,alpha1);
+    Adi(z2,y0,aux2,n);
+
+    for(i = 0; i < n; i++){
+	double temp = 1.0;
+        if (z2[i] >= 0 && z2[i] <= 1) continue;
+        
+	if(z2[i] > 1){
+	  double numFor = 1 - y0[i];
+	  temp = (p1[i] == 0.0 ? 0.0 : numFor / p1[i]); 
+	}
+	if(z2[i] < 0)
+	  temp = (p1[i] == 0.0 ? 0.0 : (-1.0 * y0[i]) / p1[i]); 
+	if(temp < alpha1)
+	  alpha1 = temp;
+    }
+
+    copyL(p1,aux2,n);
+    escalar(aux2,n,alpha1);
+    Adi(yk,y0,aux2,n);
+    
+    copyL(aux1,aux3,n);
+    escalar(aux3,n,alpha1);
+    Dif(r1,r0,aux3,n);
+
+  
+    copyL(r1,rk,n);
+    double n0 = 1,n1 = norma(rk,n);
+    //printf ("alpha1 = %f n1 = %f\n", alpha1, n1);
+     
+    while(n1 < n0 && n1 > 0.0000000001){
+      n0 = n1;
+        
+      k += 1;
+      numerator = mulVectorTranspose(r1,r1,n);
+      denominator = mulVectorTranspose(r0,r0,n); 
+      beta2 = numerator / denominator;
+
+      copyL(p1,auxp,n);
+      escalar(auxp,n,beta2);
+      Adi(p2,r1,auxp,n);
+      
+      double * auxd = productML(H,p2,n);
+      //productMatrixVector1(auxd,H,p2,n);
+      
+      auxDenominator = mulVectorTranspose(p2,auxd,n);
+      alpha2 = numerator / auxDenominator;
+      if (auxDenominator == 0) {
+        //printf ("============\n");
+        //printList (r1, n);
+        //printList (auxp, n);
+        //printf ("beta2 = %f\n", beta2);
+        //printList (p2, n);
+        //printList (auxd, n);
+        //printf ("Divisao por zero\n");
+        exit(0);
+      }
+      copyL(p2,auxz,n);
+      escalar(auxz,n,alpha2);
+      Adi(z2,yk,auxz,n);
+
+      //printf ("alpha2[k = %d] inicial = %f\n", k, alpha2);
+      for(i = 0; i < n; i++){
+	double temp = 1.0;
+        if (z2[i] >= 0 && z2[i] <= 1) continue;
+        
+	if(z2[i] > 1){
+	  double numFor = 1 - yk[i];
+	  temp = (p2[i] == 0.0 ? 0.0 : numFor / p2[i]); 
+	}
+	if(z2[i] < 0)
+	  temp = (p2[i] == 0.0 ? 0.0 : (-1.0 * yk[i]) / p2[i]); 
+	if(temp < alpha2)
+	  alpha2 = temp;
+      }
+      //printf ("alpha2[k = %d] = %f\n", k, alpha2);
+      if (0 && alpha2 == 0) {
+        printList (z2, n);
+        printList (yk, n);
+        printList (p2, n);
+        exit(0);
+      }
+      
+      double * auxy2 = createPtrLo(n);
+      copyL(p2,auxy2,n);
+      escalar(auxy2,n,alpha2);
+      Adi(y2,yk,auxy2,n);
+
+      copyL(auxd,auxr2,n);
+      escalar(auxr2,n,alpha2);//printList(auxr2,n);
+      Dif(r2,r1,auxr2,n);
+	    
+      copyL(r1,r0,n);
+      copyL(r2,r1,n);
+      copyL(r2,rk,n);
+      copyL(p2,p1,n);
+      copyL(y2,yk,n);
+
+      n1 = norma(rk,n);
+      free(auxd);
+    }
+
+    
+    //Zeros(H,n,n);
+    Zeros(V,number_of_states,n);
+    //Zeros(VA,number_of_states + 1,n);
+    //Zeros(aux,number_of_states,number_of_states);
+    //double * vetor0 = productML(H,yk,n);
+    //double * vetor1 = productML(VT,pA,n);//printList(b,n);
+    // printf ("norma do residuo = %f %f", n1, norma(r2,n));
+    n0 = 0;
+    //for (i = 0; i < n; i++) n0 += yk[i];
+    //for (i = 0; i < n; i++) vetor0[i] -= w*w + n0;
+    //for (i = 0; i < n; i++) vetor1[i] -= w*w;
+    //printList(vetor0, n);
+    //printList(vetor1, n);
+    //Dif(r2, vetor1, vetor0, n);
+    //printf ("norma do residuo vetor = %f\n", norma(r2,n));
+
+    //printDouble(HH, n, n);
+    // printDouble(VT, n, number_of_states + 1);
+    
+    //printf ("norma do residuo n1 = %f ", n1);
+    for (i = 0; i < n; i++)
+      lPBTN -> list[h].prob_selection[i] = yk[i];
+    printf("Y[%d]: ",h); printList(yk,n);
+   
+  }
+  free(auxz);free(auxy2);free(auxr2);free(y0);free(p1);free(aux2);free(aux3);free(rk);free(auxp);
+  
+  free(yk);free(y2);
+  free(r0);free(r1);free(r2);
+  free(z2);free(p2);
+  free(graph);
+  //free(mul);free(aux0);free(aux1);free(auxd);
+   
+}
+ 
+void printBN(struct listNETWORK * listNetwork, struct listPBTN * lPBTN, int n){
+  int i,j,k;
+  FILE * ap,* ap1;
+  char name [80],nameM [80];
+  long number_of_states = 1 << n;
+  unsigned long node;
+  for(i = 0; i < listNetwork -> nlist; i++){
+    int indice = lPBTN -> list[0].indice[i];
+    sprintf(name, "BN_%d",i);
+    sprintf(nameM, "M_%d",i); 
+    strcat (name, ".dot");
+    strcat (nameM, ".txt");
+    ap = fopen (name, "w");
+    ap1 = fopen (nameM, "w");
+    fprintf (ap, "Digraph G {\n");
+    fprintf (ap, "node [width=.2,height=.2,shape=circle,style=filled,color=skyblue];\n");
+    fprintf (ap, "overlap=scale;\n");
+
+    for(j = 0; j < n; j++){
+      for(k = 0; k < n; k++){
+	fprintf (ap1,"%3d",listNetwork -> listNet[i].list[indice].M[j][k]);
+      }
+      fprintf (ap1, "\n");
+    }
+    fclose (ap1);
+    
+    unsigned long * graph;
+    graph = (unsigned long *) malloc (sizeof (unsigned long) * number_of_states);
+    //printf("%2d",listNetwork -> listNet[i].list[indice].M[j][k]);
+    generatedDiagram (listNetwork -> listNet[i].list[indice].M, n, graph);
+
+    for (node = 0; node < number_of_states; node++){
+      // if (listNetwork -> listNet[i].list[indice].atractors[node]) 
+      if (node == graph[node])
+	fprintf (ap, "%lu [width=.75,height=.5,label=%lu, color=red, style=filled];\n", node , node);
+      else 
+	fprintf (ap, "%lu [label=\"\"];\n", node);
+      
+      fprintf (ap, "%lu -> %lu [len=0.125,weight=0.25];\n", node, graph[node]); 
+    }
+    fprintf (ap, "}\n");
+    fclose (ap);
+    
+    free(graph);
+    //}
+    //printf("\n");
+    //}
+  }  
+}
+
+  
+/* ************************************ */
+void procedurePBTN(struct listPBTN * lPBTN,struct listNETWORK * L,INPUT * entrada){
+  int i=0,j,k,r0,r1,r2,s,*v1,*v2,*v,loop=50;
+  r0 = lPBTN -> popsize * 0.2;
+  s = (lPBTN -> popsize - r0) / 4 ;
+  r1 = r0 + s;
+  r2 = r0 + 2 * s;
+ 
+  while(i < loop){
+    
+    for(j = r0; j < r1 ; j++){
+      v1 = (int *) malloc (L -> nlist * sizeof(int));
+      v2 = (int *) malloc (L -> nlist * sizeof(int));
+
+      crossoverSPPBTN(lPBTN,L,v1,v2,0,r0);
+      lPBTN -> list[j].indice = v1; j++;
+
+      if (j < r1){
+	lPBTN -> list[j].indice = v2;
+      }
+    }
+    
+    for(j = r1; j < r2 ; j++){
+      v = (int *) malloc (L -> nlist * sizeof(int));
+      mutationPBTN(lPBTN,L,v,0,r0);      
+      lPBTN -> list[j].indice = v;
+    }
+    
+    generatePopulationPBTN(lPBTN,L,entrada,r2,lPBTN -> popsize);
+    /* add probability */
+    double * p = probabilitiesData(lPBTN,L,entrada);
+    ProcedureConjugateGradient(L,lPBTN,entrada -> ngenes,p);
+    /* add probability */
+    calculateMSE(lPBTN,L,entrada);
+    insertionSort_MSE(lPBTN -> list,lPBTN -> popsize);
+ 
+    //if(0 && i == loop - 1) printPROCEDURE(L);
+    printLISTPBTN(lPBTN,L -> nlist);
+    i++;
+  }
+}
+
+void printRESULT(struct listNETWORK * L, struct listPBTN * lPBTN, int n,INPUT * entrada){
+  FILE * ap;
+  char name [80];
+  long number_of_states = 1 << n;
+  unsigned long node;
+  /*
+  struct list_states * list_state = malloc (sizeof(struct list_states));
+  list_state -> popSize = 10;
+  list_state -> list = (struct states *) malloc (sizeof(struct states) * popSize); 
+  
+  
+  for(i = 0; i < listNetwork -> nlist; i++){
+    int indice = lPBTN -> list[0].indice[i];
+    GRAPH * graph = createGraph(aux -> ngenes);
+    struct states * state = malloc(sizeof(struct states));
+    generateBasin(listNetwork -> listNet[i].list[indice].M,n,state);
+    list_state -> list[i] = *state;
+  }
+  */
+  // for(i = 0; i < listNetwork -> nlist; i++){
+   sprintf(name, "info");
+   strcat (name, ".txt");
+   ap = fopen (name, "w");
+  // }
+  int i,j,k;
+  for(k = 0; k < 1; k++){
+    double Erro = 0.0;
+    for(i = 0; i < entrada -> atractores; i++){
+      double sum = 0.0;
+      for(j = 0; j < L -> nlist; j++){
+	int index = lPBTN -> list[k].indice[j];
+	/* calculate p(BN) of set of BN's */
+	double pro = lPBTN -> list[k].prob_selection[j];
+	/**/
+	double f = findFrecuency(entrada -> state[i],L -> listNet[j].list[index]);
+	sum += f * pro;
+	printf("%f",f * pro);
+	//printf("Atractor[%d] Frecuency[%f] Probability[%f] \n",entrada -> state[i],f,pro);
+	
+      }
+      sum = sum / L -> nlist;
+
+      fprintf(ap,"Atractor[%d] Suma x Prob = %f \n",entrada -> state[i], sum);
+
+      printf("suma %f \n",sum);
+      //fprinf(ap,"suma %f \n",sum);
+      Erro += sqrt(pow(entrada -> fr[i] - sum , 2 ));
+      printf("Erro %f \n", Erro);
+      //fprintf(ap,"Erro %f \n", Erro);
+    }
+    lPBTN -> list[k].MSE = Erro / entrada -> atractores;
+    printf("MSE %f",Erro / entrada -> atractores);
+    //fprintf(ap,"MSE %f",Erro / entrada -> atractores);
+  }    
+
+  
+}
+
+int main (int argc, char *argv[])
+{
+  int i,imp=1;
+  srand((unsigned)time(NULL));
+  INPUT * entrada;
+  
+  entrada = ReadInput(argv[1]);
+  //if(imp) printINPUT(entrada);
+
+  struct listNETWORK * listNetwork =  malloc (sizeof(struct listNETWORK));
+  generateNETWORK(entrada,listNetwork);
+  if(imp)printLISTNET(listNetwork);
+
+  struct listPBTN * lPBTN =  malloc (sizeof(struct listPBTN));
+  lPBTN -> popsize = 30;
+  lPBTN -> list = (struct PBTN *) malloc (lPBTN -> popsize * sizeof(struct PBTN));
+  for(i = 0; i < lPBTN -> popsize; i++){
+    lPBTN -> list[i].indice = (int *) malloc (listNetwork -> nlist * sizeof(int));
+    lPBTN -> list[i].prob_selection = (double *) malloc (listNetwork -> nlist * sizeof(double));
+  }  
+
+  generatePopulationPBTN(lPBTN,listNetwork,entrada,0,lPBTN -> popsize);
+  /* add probability */
+  double * p = probabilitiesData(lPBTN,listNetwork,entrada);
+  ProcedureConjugateGradient(listNetwork,lPBTN,entrada -> ngenes,p);
+  /* */
+  calculateMSE(lPBTN,listNetwork,entrada);
+  insertionSort_MSE(lPBTN -> list,lPBTN -> popsize);
+  printLISTPBTN(lPBTN,listNetwork -> nlist);
+  
+  procedurePBTN(lPBTN,listNetwork,entrada);
+
+  /* ** list stationary distribution ** */
+  printBN(listNetwork,lPBTN,entrada -> ngenes);
+  //double * CG = ConjugateGradient(listNetwork,lPBTN,entrada -> ngenes,p);
+  printRESULT(listNetwork,lPBTN,entrada -> ngenes,entrada);
+  
+  destroyINPUT(entrada);
+  return 0; 
+}
+
